@@ -1,0 +1,222 @@
+---
+title: "ESM206 Lab 10"
+author: "Anna Abelman"
+date: "12/3/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(janitor)
+library(corrplot)
+library(beepr)
+library(praise)
+library(stargazer)
+library(sf)
+library(gganimate)
+library(transformr)
+
+```
+
+## Objectives:
+
+- mutliple linear regression
+- out first map with sf and ggplot
+
+
+### 1. Multiple linear regression: SLO home prices
+
+```{r}
+homes <- read_csv("slo_homes.csv") %>% 
+  clean_names()
+
+beep(3)
+praise()
+
+praise("You are totally ${adjective}! Super ${EXCLAMATION}!")
+```
+
+```{r}
+homes_sub <- homes %>% 
+  filter(city %in% c("San Luis Obispo", "Atascadero", "Arroyo Grande"))
+```
+
+Are there correlations between variables that we'd consider while trying to model home price?
+
+```{r}
+homes_cor <- cor(homes_sub[2:5])
+homes_cor
+
+corrplot(homes_cor,
+         method = "ellipse",
+         type = "upper")
+
+```
+
+is there any reason to think this is no a multi linear relationship?
+
+```{r}
+ggplot(data = homes_sub, aes(x = sq_ft, y = price))+
+  geom_point()
+
+ggplot(data = homes_sub, aes(x = bedrooms, y = price))+
+  geom_point()
+```
+
+Let's start with a complete model (includes city, bedrooms, bathroom, sq_ft, and sale status):
+
+```{r}
+homes_lm <- lm(price ~ city + bedrooms + bathrooms + sq_ft + status, data = homes_sub)
+
+summary(homes_lm)
+# estimates are the coefficients in the linear equations for each variable
+#reference levels would be city - Arroyo Grande and status - Foreclosure
+# bedroom is an example of possible colinearity because it is decrease -161645 each time for a bedroom 
+```
+This model significantly predict the home price
+
+Now let's try another version of the model:
+- just using sq_ft as a measure of home size
+```{r}
+homes_lm2 <- lm(price ~ city + sq_ft + status, data = homes_sub)
+summary(homes_lm2)
+
+beep(6)
+praise()
+
+```
+
+AIC:
+```{r}
+AIC(homes_lm)
+AIC(homes_lm2)
+
+# homes_lm is lower so it is the better model, however, it should be the least interesting part and conceptually should make the most sense
+#does it make sense conceptually that bedrooms and bathrooms should increase or decrease the price of the house? the sq_ft measure is best to determine the price
+
+#model 2 is the conceptually more sound 
+```
+
+### Now: check the assumptions for normality and homoscedasticity
+- normality refers to the distribution of the residuals NOT THE DISTRIBUTION OF THE DATA
+
+```{r}
+plot(homes_lm2)
+
+#1: actual residual values; are the variances constant or changing throughoout? --> looks like the assumption of constant variances of residuals (homoscedasticity) is OK
+#2: qq plot - is there are linear relationship? --> straight line so normally distribution
+# cook's distance: comparing leverage on a model
+
+praise()
+```
+
+Make a nice regression table:
+```{r, results = 'asis'}
+
+stargazer(homes_lm2, type = "html")
+
+
+```
+
+Let's make some predictions for how price based on a new data frame from of home characteristics
+
+Make sure that the variables we create for the new data match the variables that the model will be looking for to make new predictions.
+
+```{r}
+new_df <- data.frame(
+  city = rep(c("San Luis Obispo", "Arroyo Grande", "Atascadero"), each = 10), 
+  sq_ft = rep(seq(1000, 5000, length = 10)),
+  status = "Regular"
+)
+
+```
+
+Now: We'll make predictions for home rpice based on that new data:
+```{r}
+predict_df <- predict(homes_lm2, newdata = new_df)
+predict_df
+
+#bind together the new_df with the predictions:
+full_data <- data.frame(new_df, predict_df)
+full_data
+```
+
+Now plot in ggplot2:
+
+```{r}
+ggplot()+
+  geom_point(data = homes_sub, aes(x = sq_ft, y = price, color = city, pch = city))+
+  geom_line(data = full_data, aes(x = sq_ft, y = predict_df, color = city))+
+  scale_color_manual(values = c("orange", "magenta", "black"))+
+  theme_minimal()
+```
+
+### Our first map 
+- great because: sticky geometries
+
+```{r}
+dams <- read_csv("ca_dams.csv") %>% 
+  clean_names() %>% 
+  drop_na(latitude) %>% 
+  drop_na(longitude) %>% 
+  drop_na(year_completed)
+```
+
+convert our data frame to an sf object using st_as_sf:
+```{r}
+dams_sf <- st_as_sf(dams, coords = c("longitude", "latitude"))
+st_crs(dams_sf) <- 4326
+
+plot(dams_sf)
+
+```
+
+Read in the California border polygon data:
+```{r}
+library(here)
+ca_border <- read_sf(here::here("ca_state_border"), layer = "CA_State_TIGER2016")
+
+plot(ca_border)
+```
+
+Now let's plot them together with ggplot2:
+```{r}
+ggplot()+
+  geom_sf(data = dams_sf, color = "skyblue", size = 1, alpha = 0.4)
+
+ggplot()+
+  geom_sf(data = ca_border, color = "light gray", color = "black")+
+  theme_void()
+
+
+ggplot()+
+  geom_sf(data = ca_border, color = "light gray", color = "black")+
+  geom_sf(data = dams_sf, color = "skyblue", size = 1, alpha = 0.4)+
+  theme_minimal()
+
+```
+
+Now let's animate it with gganimate
+
+```{r}
+ggplot()+
+  geom_sf(data = ca_border, color = "light gray", color = "black")+
+  geom_sf(data = dams_sf, color = "skyblue", size = 1, alpha = 0.4)+
+  theme_void()+
+  labs(title = 'Year: {round(frame_time, 0)}')+
+  transition_time(year_completed)+
+  shadow_mark()
+```
+
+
+
+
+
+
+
+
+
+
+
+
